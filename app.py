@@ -134,3 +134,21 @@ if verificar_acceso():
                 guardar_log_interaccion(pregunta_usuario, respuesta_ia)
             except Exception as e:
                 st.error(f"Error de conexión con la IA: {e}")
+
+
+# ==========================================
+    # 6. PANEL DE ADMINISTRADOR (SOLO PARA TI)
+    # ==========================================
+    st.sidebar.title("⚙️ Panel de Control")
+    st.sidebar.info("Área exclusiva del investigador.")
+    
+    if os.path.exists("historial_piloto.json"):
+        with open("historial_piloto.json", "r", encoding="utf-8") as f:
+            st.sidebar.download_button(
+                label="📥 Descargar Historial (JSON)",
+                data=f,
+                file_name=f"historial_odontologia_{datetime.date.today()}.json",
+                mime="application/json"
+            )
+    else:
+        st.sidebar.warning("Aún no hay conversaciones guardadas hoy.")
