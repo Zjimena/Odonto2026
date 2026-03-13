@@ -136,19 +136,26 @@ if verificar_acceso():
                 st.error(f"Error de conexión con la IA: {e}")
 
 
-# ==========================================
-    # 6. PANEL DE ADMINISTRADOR (SOLO PARA TI)
+==========================================
+    # 6. PANEL DE ADMINISTRADOR (OCULTO)
     # ==========================================
-    st.sidebar.title("⚙️ Panel de Control")
-    st.sidebar.info("Área exclusiva del investigador.")
+    st.sidebar.title("⚙️ Panel del Investigador")
+    st.sidebar.caption("Área restringida.")
     
-    if os.path.exists("historial_piloto.json"):
-        with open("historial_piloto.json", "r", encoding="utf-8") as f:
-            st.sidebar.download_button(
-                label="📥 Descargar Historial (JSON)",
-                data=f,
-                file_name=f"historial_odontologia_{datetime.date.today()}.json",
-                mime="application/json"
-            )
-    else:
-        st.sidebar.warning("Aún no hay conversaciones guardadas hoy.")
+    # Creamos un segundo candado solo para ti
+    clave_admin = st.sidebar.text_input("Clave Admin:", type="password")
+    
+    # Si pones la clave correcta, se revela el botón
+    if clave_admin == "Admin-Odonto99":  # <-- Esta es tu clave secreta de descarga
+        st.sidebar.success("Acceso concedido.")
+        if os.path.exists("historial_piloto.json"):
+            with open("historial_piloto.json", "r", encoding="utf-8") as f:
+                st.sidebar.download_button(
+                    label="📥 Descargar Historial (JSON)",
+                    data=f,
+                    file_name=f"historial_odontologia_{datetime.date.today()}.json",
+                    mime="application/json"
+                )
+        else:
+            st.sidebar.warning("Aún no hay conversaciones guardadas hoy.")
+
