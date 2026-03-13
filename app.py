@@ -6,7 +6,6 @@ import json
 import os
 
 try:
-   try:
     CLAVE_ACCESO_PILOTO = st.secrets["CLAVE_ACCESO_PILOTO"]
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
     CLAVE_ADMIN_SECRETA = st.secrets["CLAVE_ADMIN_SECRETA"] 
@@ -136,4 +135,5 @@ if verificar_acceso():
                 )
         else:
             st.sidebar.warning("Aún no hay conversaciones guardadas hoy.")
+
 
