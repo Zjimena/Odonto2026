@@ -5,24 +5,19 @@ import datetime
 import json
 import os
 
-# ==========================================
-# 1. CONFIGURACIÓN Y SEGURIDAD
-# ==========================================
-# Leemos las claves de la bóveda segura de Streamlit
 try:
+   try:
     CLAVE_ACCESO_PILOTO = st.secrets["CLAVE_ACCESO_PILOTO"]
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    CLAVE_ADMIN_SECRETA = st.secrets["CLAVE_ADMIN_SECRETA"] 
 except KeyError:
     st.error("Faltan las claves de API. Configura los 'secrets' de Streamlit.")
     st.stop()
 
-# Configuramos el modelo de IA con la librería nativa de Google
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('models/gemini-2.5-flash')
 
-# ==========================================
-# 2. MÓDULO DE OBSERVABILIDAD (LOGS)
-# ==========================================
+
 def guardar_log_interaccion(pregunta, respuesta):
     """Guarda el historial en formato JSON. 
     Para la Fase 2 en producción, conectaremos esto a una base Serverless."""
@@ -47,9 +42,6 @@ def guardar_log_interaccion(pregunta, respuesta):
     with open(archivo_logs, "w", encoding="utf-8") as f:
         json.dump(logs_existentes, f, indent=4, ensure_ascii=False)
 
-# ==========================================
-# 3. BASE DE CONOCIMIENTO (PDF)
-# ==========================================
 @st.cache_data
 def cargar_base_conocimiento():
     texto = ""
@@ -62,9 +54,6 @@ def cargar_base_conocimiento():
     except FileNotFoundError:
         return "ADVERTENCIA: No se encontró el archivo guia_dental.pdf. El chatbot responderá con conocimiento general."
 
-# ==========================================
-# 4. SISTEMA DE AUTENTICACIÓN
-# ==========================================
 def verificar_acceso():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
@@ -83,9 +72,6 @@ def verificar_acceso():
         return False
     return True
 
-# ==========================================
-# 5. INTERFAZ VISUAL DEL CHATBOT
-# ==========================================
 if verificar_acceso():
     st.title("🦷 Chatbot Odonto 2026")
     st.caption("Conectado a Google Gemini y alimentado por guías clínicas PDF.")
@@ -106,12 +92,11 @@ if verificar_acceso():
     pregunta_usuario = st.chat_input("Ej: ¿Cómo hago una tesina?")
 
     if pregunta_usuario:
-        # Mostrar la pregunta en la UI
+     
         with st.chat_message("user"):
             st.markdown(pregunta_usuario)
         st.session_state.mensajes_chat.append({"rol": "user", "contenido": pregunta_usuario})
 
-        # Ingeniería de Prompt Médico (El "cerebro" clínico)
         prompt_final = f"""
         Eres un especialista odontológico experto. Responde la siguiente duda usando ÚNICAMENTE 
         la información de esta guía clínica. Si no está en el texto, indícalo claramente y no inventes tratamientos.
@@ -123,28 +108,22 @@ if verificar_acceso():
         {pregunta_usuario}
         """
 
-        # Consultar a la IA y mostrar respuesta
         with st.chat_message("assistant"):
             try:
                 respuesta_ia = modelo.generate_content(prompt_final).text
                 st.markdown(respuesta_ia)
                 st.session_state.mensajes_chat.append({"rol": "assistant", "contenido": respuesta_ia})
                 
-                # Guardar el log silenciosamente
                 guardar_log_interaccion(pregunta_usuario, respuesta_ia)
             except Exception as e:
                 st.error(f"Error de conexión con la IA: {e}")
 
 
-# ==========================================
-    # 6. PANEL DE ADMINISTRADOR (OCULTO Y SEGURO)
-    # ==========================================
     st.sidebar.title("⚙️ Panel del Investigador")
     st.sidebar.caption("Área restringida.")
     
     clave_admin = st.sidebar.text_input("Clave Admin:", type="password")
     
-    # Comparamos contra la bóveda, NO contra texto plano
     if clave_admin == CLAVE_ADMIN_SECRETA:  
         st.sidebar.success("Acceso concedido.")
         if os.path.exists("historial_piloto.json"):
@@ -157,3 +136,4 @@ if verificar_acceso():
                 )
         else:
             st.sidebar.warning("Aún no hay conversaciones guardadas hoy.")
+
