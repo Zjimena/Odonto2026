@@ -136,17 +136,16 @@ if verificar_acceso():
                 st.error(f"Error de conexión con la IA: {e}")
 
 
-==========================================
-    # 6. PANEL DE ADMINISTRADOR (OCULTO)
+# ==========================================
+    # 6. PANEL DE ADMINISTRADOR (OCULTO Y SEGURO)
     # ==========================================
     st.sidebar.title("⚙️ Panel del Investigador")
     st.sidebar.caption("Área restringida.")
     
-    # Creamos un segundo candado solo para ti
     clave_admin = st.sidebar.text_input("Clave Admin:", type="password")
     
-    # Si pones la clave correcta, se revela el botón
-    if clave_admin == "Admin-Odonto99":  # <-- Esta es tu clave secreta de descarga
+    # Comparamos contra la bóveda, NO contra texto plano
+    if clave_admin == CLAVE_ADMIN_SECRETA:  
         st.sidebar.success("Acceso concedido.")
         if os.path.exists("historial_piloto.json"):
             with open("historial_piloto.json", "r", encoding="utf-8") as f:
@@ -158,4 +157,3 @@ if verificar_acceso():
                 )
         else:
             st.sidebar.warning("Aún no hay conversaciones guardadas hoy.")
-
