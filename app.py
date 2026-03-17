@@ -59,7 +59,7 @@ def verificar_acceso():
 
     if not st.session_state.autenticado:
         st.title("🦷 Asistente Odonto IA - Fase Piloto")
-        st.info("Acceso restringido a 40 usuarios autorizados. Por protocolo de privacidad, no ingrese datos reales de pacientes.")
+        st.info("Acceso restringido a usuarios autorizados. Por protocolo de privacidad, no ingrese datos reales de pacientes.")
         
         clave = st.text_input("Ingrese la clave maestra:", type="password")
         if st.button("Entrar"):
@@ -73,7 +73,7 @@ def verificar_acceso():
 
 if verificar_acceso():
     st.title("🦷 Chatbot Odonto 2026")
-    st.caption("Conectado a Google Gemini y alimentado por guías clínicas PDF.")
+    st.caption("Conectado a Google Gemini y alimentado por guías PDF.")
 
     # Cargar el PDF en la memoria RAM (caché)
     contexto_clinico = cargar_base_conocimiento()
@@ -97,8 +97,8 @@ if verificar_acceso():
         st.session_state.mensajes_chat.append({"rol": "user", "contenido": pregunta_usuario})
 
         prompt_final = f"""
-        Eres un especialista odontológico experto. Responde la siguiente duda usando ÚNICAMENTE 
-        la información de esta guía clínica. Si no está en el texto, indícalo claramente y no inventes tratamientos.
+        Eres un especialista odontológico experto en investigación y creación de carteles cientificos. Responde la siguiente duda usando ÚNICAMENTE 
+        la información de esta guía clínica. Si no está en el texto, indícalo claramente y no inventes información.
         
         --- GUÍA CLÍNICA ---
         {contexto_clinico[:40000]} 
