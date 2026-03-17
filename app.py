@@ -44,21 +44,21 @@ def guardar_log_interaccion(pregunta, respuesta):
 @st.cache_data
 def cargar_base_conocimiento():
     texto = ""
-    nombre_pdf = "guia_dental.pdf" 
+    nombre_pdf = "Guia_dental.pdf" 
     try:
         lector = PdfReader(nombre_pdf)
         for pagina in lector.pages:
             texto += pagina.extract_text() + "\n"
         return texto
     except FileNotFoundError:
-        return "ADVERTENCIA: No se encontró el archivo guia_dental.pdf. El chatbot responderá con conocimiento general."
+        return "ADVERTENCIA: No se encontró el archivo Guia_dental.pdf. El chatbot responderá con conocimiento general."
 
 def verificar_acceso():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
 
     if not st.session_state.autenticado:
-        st.title("🦷 Asistente Odonto IA - Fase Piloto")
+        st.title("🦷 PaperMinds IA")
         st.info("Acceso restringido a usuarios autorizados. Por protocolo de privacidad, no ingrese datos reales de pacientes.")
         
         clave = st.text_input("Ingrese la clave maestra:", type="password")
@@ -72,7 +72,7 @@ def verificar_acceso():
     return True
 
 if verificar_acceso():
-    st.title("🦷 Chatbot Odonto 2026")
+    st.title("🦷 Chatbot de Investigación 2026")
     st.caption("Conectado a Google Gemini y alimentado por guías PDF.")
 
     # Cargar el PDF en la memoria RAM (caché)
