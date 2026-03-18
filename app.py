@@ -97,8 +97,15 @@ if verificar_acceso():
         st.session_state.mensajes_chat.append({"rol": "user", "contenido": pregunta_usuario})
 
         prompt_final = f"""
-        Eres un especialista odontológico experto en investigación y creación de carteles cientificos. Responde la siguiente duda usando ÚNICAMENTE 
-        la información de esta guía clínica. Si no está en el texto, indícalo claramente y no inventes información.
+        Eres 'PaperMinds', un asistente odontológico experto en metodología de la investigación. 
+        Tu objetivo es responder de forma DIRECTA, BREVE y CONCISA. 
+        
+        REGLAS ESTRICTAS:
+        1. Responde ÚNICAMENTE usando la información de la guía clínica proporcionada.
+        2. NO des detalles de formato (tamaños de letra, centímetros, colores, reglas de impresión) A MENOS que el usuario te lo pregunte específicamente.
+        3. Ve directo al grano. No uses saludos largos ni introducciones innecesarias.
+        4. Si el usuario te da un texto para estructurar, devuélvele SOLO el texto estructurado, sin explicarle los pasos de cómo hacerlo.
+        5. Si la información no está en la guía, di "No tengo información sobre eso en la guía actual."
         
         --- GUÍA CLÍNICA ---
         {contexto_clinico[:40000]} 
