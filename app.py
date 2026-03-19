@@ -25,7 +25,7 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
-modelo = genai.GenerativeModel('gemini-2.0-flash-lite')
+modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 def guardar_log_interaccion(pregunta, respuesta):
     """Guarda el historial directamente en Google Firebase. """
