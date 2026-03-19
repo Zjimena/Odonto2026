@@ -42,8 +42,8 @@ def guardar_log_interaccion(pregunta, respuesta):
 
 @st.cache_data
 def cargar_base_conocimiento():
-    texto= ""
-    nombre_pdf: "Guia_dental.pdf"
+    texto = ""
+    nombre_pdf = "Guia_dental.pdf" 
     try:
         lector = PdfReader(nombre_pdf)
         for pagina in lector.pages:
