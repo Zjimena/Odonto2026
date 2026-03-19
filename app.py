@@ -26,7 +26,7 @@ db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel(
-    model_name='gemini-2.0-flash'
+    modelo = genai.GenerativeModel('gemini-2.0-flash-lite')
 )
 
 def guardar_log_interaccion(pregunta, respuesta):
