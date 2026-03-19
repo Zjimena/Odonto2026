@@ -28,6 +28,7 @@ modelo = genai.GenerativeModel('gemini-1.5-flash')
 
 
 
+
 def guardar_log_interaccion(pregunta, respuesta):
     """Guarda el historial directamente en Google Firebase. """
     log = {
