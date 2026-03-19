@@ -26,9 +26,15 @@ db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
-    generation_config={"tag": "v1"} 
+    model_name='gemini-2.5-flash'
 )
+st.write("🕵️‍♂️ **Modelos disponibles en mi API Key:**")
+try:
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            st.write(f"- `{m.name}`")
+except Exception as e:
+    st.write(f"Error buscando modelos: {e}")
 
 def guardar_log_interaccion(pregunta, respuesta):
     """Guarda el historial directamente en Google Firebase. """
