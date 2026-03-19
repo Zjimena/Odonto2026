@@ -24,7 +24,8 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
-modelo = genai.GenerativeModel('models/gemini-1.5-flash')
+modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
+
 
 
 def guardar_log_interaccion(pregunta, respuesta):
