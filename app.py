@@ -4,55 +4,54 @@ from PyPDF2 import PdfReader
 import datetime
 import json
 import os
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 try:
     CLAVE_ACCESO_PILOTO = st.secrets["CLAVE_ACCESO_PILOTO"]
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
     CLAVE_ADMIN_SECRETA = st.secrets["CLAVE_ADMIN_SECRETA"] 
+    FIREBASE_CREDENTIALS = st.secrets["FIREBASE_CREDENTIALS"]
 except KeyError:
     st.error("Faltan las claves de API. Configura los 'secrets' de Streamlit.")
     st.stop()
+
+if not firebase_admin._apps:
+    cred_dict = json.loads(FIREBASE_CREDENTIALS)
+    cred = credentials.Certificate(cred_dict)
+    firebase_admin.initialize_app(cred)
+    
+db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('models/gemini-2.5-flash')
 
 
 def guardar_log_interaccion(pregunta, respuesta):
-    """Guarda el historial en formato JSON. 
-    Para la Fase 2 en producción, conectaremos esto a una base Serverless."""
+    """Guarda el historial directamente en Google Firebase. """
     log = {
         "fecha_hora": datetime.datetime.now().isoformat(),
         "input_usuario": pregunta,
         "output_ia": respuesta
     }
-    
-    archivo_logs = "historial_piloto.json"
-    logs_existentes = []
-    
-    if os.path.exists(archivo_logs):
-        with open(archivo_logs, "r", encoding="utf-8") as f:
-            try:
-                logs_existentes = json.load(f)
-            except json.JSONDecodeError:
-                logs_existentes = []
-            
-    logs_existentes.append(log)
-    
-    with open(archivo_logs, "w", encoding="utf-8") as f:
-        json.dump(logs_existentes, f, indent=4, ensure_ascii=False)
+
+    try: 
+        db.collection("chats_paperminds").add(log)
+    except Exception as e:
+        st.error(f"Error al guardar en la nube: {e}")
 
 @st.cache_data
 def cargar_base_conocimiento():
-    texto = ""
-    nombre_pdf = "Guia_dental.pdf" 
+    texto= ""
+    nombre_pdf: "Guia_dental.pdf"
     try:
         lector = PdfReader(nombre_pdf)
         for pagina in lector.pages:
             texto += pagina.extract_text() + "\n"
         return texto
     except FileNotFoundError:
-        return "ADVERTENCIA: No se encontró el archivo Guia_dental.pdf. El chatbot responderá con conocimiento general."
-
+        return "ADVERTENCIA: No se encontró el archivo Guia_dental.pdf."
+    
 def verificar_acceso():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
@@ -72,23 +71,19 @@ def verificar_acceso():
     return True
 
 if verificar_acceso():
-    st.title("🦷 Chatbot de Investigación 2026")
-    st.caption("Conectado a Google Gemini y alimentado por guías PDF.")
+    st.title("🦷 PaperMinds IA")
+    st.caption("Asistente experto en metodología e investigación odontológica.")
 
-    # Cargar el PDF en la memoria RAM (caché)
     contexto_clinico = cargar_base_conocimiento()
 
-    # Inicializar historial visual de la sesión actual
     if "mensajes_chat" not in st.session_state:
         st.session_state.mensajes_chat = []
 
-    # Dibujar mensajes anteriores en la pantalla
     for msj in st.session_state.mensajes_chat:
         with st.chat_message(msj["rol"]):
             st.markdown(msj["contenido"])
 
-    # Capturar lo que escribe el usuario
-    pregunta_usuario = st.chat_input("Ej: ¿Cómo hago una tesina?")
+    pregunta_usuario = st.chat_input("Ej: ¿Qué lleva un cartel de AMIC?")
 
     if pregunta_usuario:
      
@@ -123,24 +118,5 @@ if verificar_acceso():
                 guardar_log_interaccion(pregunta_usuario, respuesta_ia)
             except Exception as e:
                 st.error(f"Error de conexión con la IA: {e}")
-
-
-    st.sidebar.title("⚙️ Panel del Investigador")
-    st.sidebar.caption("Área restringida.")
-    
-    clave_admin = st.sidebar.text_input("Clave Admin:", type="password")
-    
-    if clave_admin == CLAVE_ADMIN_SECRETA:  
-        st.sidebar.success("Acceso concedido.")
-        if os.path.exists("historial_piloto.json"):
-            with open("historial_piloto.json", "r", encoding="utf-8") as f:
-                st.sidebar.download_button(
-                    label="📥 Descargar Historial (JSON)",
-                    data=f,
-                    file_name=f"historial_odontologia_{datetime.date.today()}.json",
-                    mime="application/json"
-                )
-        else:
-            st.sidebar.warning("Aún no hay conversaciones guardadas hoy.")
 
 
