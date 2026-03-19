@@ -113,7 +113,12 @@ if verificar_acceso():
 
         with st.chat_message("assistant"):
             try:
-                respuesta_ia = modelo.generate_content(prompt_final).text
+                respuesta_ia = modelo.generate_content(prompt_final, safety_settings={
+    "HATE": "BLOCK_NONE",
+    "HARASSMENT": "BLOCK_NONE",
+    "SEXUAL": "BLOCK_NONE",
+    "DANGEROUS": "BLOCK_NONE"
+}).text
                 st.markdown(respuesta_ia)
                 st.session_state.mensajes_chat.append({"rol": "assistant", "contenido": respuesta_ia})
                 
