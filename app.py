@@ -124,9 +124,4 @@ if verificar_acceso():
                 
                 guardar_log_interaccion(pregunta_usuario, respuesta_ia)
             except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "Quota" in error_str:
-                    st.warning("⏳ Muchos estudiantes están consultando al mismo tiempo. Por favor, espera 20 segundos y vuelve a darle Enter a tu pregunta.")
-                else:
-                    st.error(f"Error de conexión con la IA: {e}")
-            
+                st.error(f"Error real de Google: {e}")
