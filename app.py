@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+from google.generativeai.types import GenerationConfig
 from PyPDF2 import PdfReader
 import datetime
 import json
@@ -24,10 +25,9 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
-modelo = genai.GenerativeModel('models/gemini-pro')
-
-
-
+modelo = genai.GenerativeModel(
+    model_name='gemini-1.5-flash',
+    generation_config={"tag": "v1"} 
 
 def guardar_log_interaccion(pregunta, respuesta):
     """Guarda el historial directamente en Google Firebase. """
