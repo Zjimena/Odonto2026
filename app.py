@@ -24,7 +24,7 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
-modelo = genai.GenerativeModel('gemini-1.5-pro')
+modelo = genai.GenerativeModel('gemini-1.5-flash')
 
 
 
