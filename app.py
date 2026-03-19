@@ -149,10 +149,9 @@ if "mensajes_chat" not in st.session_state:
 
 # Mostrar el historial de chat con los NUEVOS ICONOS
 for msj in st.session_state.mensajes_chat:
-    # Definir avatar: 👨‍⚕️ para usuario, 🤖 para IA
     avatar = "👨‍⚕️" if msj["role"] == "user" else "🤖"
     with st.chat_message(msj["role"], avatar=avatar):
-        st.markdown(msj["contenido"])
+        st.markdown(msj["role"] == "user" and msj.get("content") or msj.get("contenido") or msj.get("content", ""))
 
 # Caja de entrada de texto (Input)
 pregunta_usuario = st.chat_input("Ej: ¿Cómo estructurar un caso clínico?")
@@ -162,7 +161,7 @@ if pregunta_usuario:
     # 1. Mostrar y guardar pregunta del usuario
     with st.chat_message("user", avatar="👨‍⚕️"):
         st.markdown(pregunta_usuario)
-    st.session_state.mensajes_chat.append({"role": "user", "content": pregunta_usuario})
+    st.session_state.mensajes_chat.append({"role": "user", "contenido": pregunta_usuario})
 
     # 2. Construir el Prompt (Instrucciones para la IA)
     # Limitamos el contexto del PDF para evitar saturar la memoria (primeros 60,000 caracteres)
@@ -204,7 +203,7 @@ REGLAS ESTRICTAS DE RESPUESTA:
                 
                 # Mostrar respuesta y guardar en historial
                 st.markdown(respuesta_ia)
-                st.session_state.mensajes_chat.append({"role": "assistant", "content": respuesta_ia})
+                st.session_state.mensajes_chat.append({"role": "assistant", "contenido": respuesta_ia})
                 
                 # 4. Guardar log en Firebase (en segundo plano)
                 guardar_log_interaccion(pregunta_usuario, respuesta_ia)
