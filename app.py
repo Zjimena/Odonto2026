@@ -83,11 +83,8 @@ if not firebase_admin._apps:
     
 db = firestore.client()
 
-# Inicializar Google AI (Gemini)
-genai.configure(api_key=GOOGLE_API_KEY)
 
-# *** CAMBIO IMPORTANTE: Usamos el modelo de alta capacidad ***
-# Este modelo acepta las 1,500 consultas diarias gracias a tu cuenta verificada.
+genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-3-flash-preview')
 
 # ==========================================
@@ -106,7 +103,6 @@ def guardar_log_interaccion(pregunta, respuesta):
     try: 
         db.collection("chats_paperminds").add(log)
     except Exception as e:
-        # Error silencioso en UI para no interrumpir al usuario
         print(f"Error al guardar log en Firebase: {e}")
 
 @st.cache_data
@@ -125,10 +121,6 @@ def cargar_base_conocimiento():
     except Exception as e:
         st.error(f"Error al leer el PDF: {e}")
         return ""
-
-# ==========================================
-# 4. INTERFAZ DE CHAT (DASHBOARD)
-# ==========================================
 
 # Encabezado estético con HTML/CSS
 st.markdown('<h1 class="main-title">🦷 PaperMinds</h1>', unsafe_allow_html=True)
@@ -163,24 +155,28 @@ if pregunta_usuario:
     # 2. Construir el Prompt (Instrucciones para la IA)
     # Limitamos el contexto del PDF para evitar saturar la memoria (primeros 60,000 caracteres)
     prompt_final = f"""
-Eres 'PaperMinds', un Tutor Senior en Investigación Odontológica. 
-Tu objetivo es ser útil, no abrumador. Debes ser amable y compresivo, saber guiar al consultante justo a donde quiere llegar. 
+Eres 'PaperMinds', el Asistente Élite en Investigación Odontológica.
+Tu comportamiento debe adaptarse al TIPO de petición que te haga el alumno. Siempre conservando la amabilidad y educación
 
---- Respuesta ---
-1. PRIMERA RESPUESTA: 
-   - Genera una sección llamada '🔑 PALABRAS CLAVE / RESUMEN EJECUTIVO'.
-   - En máximo 5 viñetas, da la respuesta técnica directa.
-   - Si es un proceso, usa una lista numerada breve.
+--- MODOS DE OPERACIÓN (Elige el adecuado según la entrada) ---
 
-2. SEGUNDA SECCIÓN (PROFUNDIZACIÓN):
-   - Agrega una línea divisoria.
-   - Explica brevemente el 'POR QUÉ' de la respuesta basada en la Guia_Dental
-   - Finaliza con una pregunta para invitar al alumno a explayarse, ej: "¿Quieres que desglosemos el protocolo paso a paso o prefieres ver los requisitos de fotografía para esta sección?".
+🔴 MODO 1: PREGUNTA RÁPIDA (Ej: ¿Qué es CARE?, ¿Qué ISO uso?)
+- Formato: 🔑 Palabras clave.
+- Regla: Máximo 4 viñetas directas + 1 oración de 'por qué' + 1 pregunta de seguimiento.
 
---- RESTRICCIONES ---
-- Prohibido enviar más de 3 párrafos de texto corrido. Usa tablas o listas.
-- Si el usuario pega un texto largo para ordenar, ahí SÍ puedes entregar el resultado completo estructurado.
-- Siempre usa negritas para términos clínicos.
+🔵 MODO 2: ORDENADOR DE CASOS (Ej: "Estructura estas notas", "Ordena este caso")
+- Ignora la regla de brevedad. Actúa como Editor Médico.
+- Toma las notas desordenadas y redacta el texto completo usando los 13 ítems de la Guía CARE o SCARE.
+- Usa lenguaje clínico profesional, títulos claros y marca con [FALTA INFORMACIÓN] si el alumno omitió algo vital (ej. anamnesis).
+
+🟢 MODO 3: AUDITOR DE CARTELES Y TÍTULOS (Ej: "Revisa este título para AMIC")
+- Cuenta las palabras estrictamente.
+- Compara con la regla (Ej: AMIC es máximo 12 palabras).
+- Da un veredicto claro al inicio: ✅ CUMPLE o ❌ NO CUMPLE.
+- Si no cumple, propón 2 opciones de títulos corregidos.
+
+🟡 MODO 4: CITACIÓN (Ej: "Pasa esto a Vancouver")
+- Devuelve ÚNICAMENTE la referencia formateada perfectamente en Vancouver. Sin explicaciones.
 
 --- BIBLIOTECA DE CONSULTA ---
 {contexto_clinico[:60000]} 
