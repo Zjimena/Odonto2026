@@ -68,19 +68,57 @@ if not firebase_admin._apps:
     except Exception as e:
         st.error(f"Error crítico al conectar con Firebase: {e}")
         st.stop()
-    
+
 db = firestore.client()
 
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-3-flash-preview')
 
 # ==========================================
-# 3. FUNCIONES DE SOPORTE
+# 3. FUNCIONES DE AUTENTICACIÓN
 # ==========================================
 
-def generar_user_id(nombre_usuario: str) -> str:
-    """Genera un ID único y anónimo basado en el nombre del usuario."""
-    return hashlib.sha256(nombre_usuario.strip().lower().encode()).hexdigest()[:16]
+def hashear(texto: str) -> str:
+    """Devuelve SHA-256 de un texto."""
+    return hashlib.sha256(texto.strip().encode()).hexdigest()
+
+def generar_user_id(nombre: str, password: str) -> str:
+    """ID único basado en nombre + contraseña.
+    Dos alumnos con el mismo nombre pero distinta contraseña obtienen IDs distintos."""
+    return hashlib.sha256(f"{nombre.strip().lower()}:{password}".encode()).hexdigest()[:16]
+
+def buscar_cuenta(nombre: str) -> dict | None:
+    """Busca si ya existe una cuenta registrada con ese nombre en Firebase."""
+    try:
+        docs = (
+            db.collection("usuarios_paperminds")
+            .where("nombre_normalizado", "==", nombre.strip().lower())
+            .limit(1)
+            .stream()
+        )
+        for doc in docs:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        print(f"Error al buscar cuenta: {e}")
+        return None
+
+def registrar_cuenta(nombre: str, password: str, user_id: str):
+    """Crea una nueva cuenta en la colección usuarios_paperminds."""
+    try:
+        db.collection("usuarios_paperminds").document(user_id).set({
+            "nombre_display": nombre.strip(),
+            "nombre_normalizado": nombre.strip().lower(),
+            "password_hash": hashear(password),
+            "user_id": user_id,
+            "fecha_registro": datetime.datetime.now().isoformat()
+        })
+    except Exception as e:
+        print(f"Error al registrar cuenta: {e}")
+
+# ==========================================
+# 4. FUNCIONES DE SOPORTE
+# ==========================================
 
 def cargar_historial_usuario(user_id: str) -> list:
     """Carga el historial de conversaciones previas del usuario desde Firebase."""
@@ -89,7 +127,7 @@ def cargar_historial_usuario(user_id: str) -> list:
             db.collection("chats_paperminds")
             .where("user_id", "==", user_id)
             .order_by("fecha_hora")
-            .limit(20)  # Últimas 20 interacciones para no saturar el contexto
+            .limit(20)
             .stream()
         )
         historial = []
@@ -132,13 +170,10 @@ def contar_interacciones_previas(user_id: str) -> int:
 @st.cache_data
 def cargar_base_conocimiento():
     """Carga y extrae texto del PDF adjunto."""
-    texto = ""
     nombre_pdf = "Guia_dental.pdf"
     try:
         lector = PdfReader(nombre_pdf)
-        for pagina in lector.pages:
-            texto += pagina.extract_text() + "\n"
-        return texto
+        return "\n".join(p.extract_text() or "" for p in lector.pages)
     except FileNotFoundError:
         st.error(f"No se encontró el archivo {nombre_pdf}. La IA no tendrá contexto.")
         return "ADVERTENCIA: No se encontró el archivo Guia_dental.pdf."
@@ -156,8 +191,7 @@ def extraer_texto_documento(archivo) -> str:
         elif nombre.endswith(".docx"):
             doc = DocxDocument(io.BytesIO(archivo.read()))
             return "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
-        else:
-            return ""
+        return ""
     except Exception as e:
         return f"[ERROR al leer el documento: {e}]"
 
@@ -166,14 +200,14 @@ def construir_historial_para_prompt(mensajes: list) -> str:
     if not mensajes:
         return "Sin conversaciones previas en esta sesión."
     lineas = []
-    for msj in mensajes[-10:]:  # Solo últimos 10 mensajes para no saturar
+    for msj in mensajes[-10:]:
         rol = "Alumno" if msj["role"] == "user" else "PaperMinds"
         contenido = msj.get("contenido") or msj.get("content", "")
         lineas.append(f"{rol}: {contenido}")
     return "\n".join(lineas)
 
 # ==========================================
-# 4. INTERFAZ PRINCIPAL
+# 5. INTERFAZ PRINCIPAL
 # ==========================================
 
 st.markdown('<h1 class="main-title">🦷 PaperMinds</h1>', unsafe_allow_html=True)
@@ -181,53 +215,104 @@ st.markdown('<p class="subtitle">Asistente experto en metodología e investigaci
 
 st.info("⚠️ Por protocolo de privacidad, no ingrese datos reales ni nombres de pacientes.")
 
-# --- IDENTIFICACIÓN DEL USUARIO ---
+# --- INICIALIZAR SESSION STATE ---
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
     st.session_state.nombre_usuario = None
     st.session_state.es_usuario_recurrente = False
     st.session_state.mensajes_chat = []
     st.session_state.historial_cargado = False
-    st.session_state.documento_texto = ""       # Texto extraído del documento activo
-    st.session_state.documento_nombre = ""      # Nombre del archivo para referencia en sesión
+    st.session_state.documento_texto = ""
+    st.session_state.documento_nombre = ""
+    st.session_state.mostrar_bienvenida = True
+    st.session_state.auth_error = ""
 
-# Formulario de identificación (solo se muestra si no hay usuario activo)
+# ==========================================
+# 6. PANTALLA DE ACCESO (LOGIN / REGISTRO)
+# ==========================================
+
 if st.session_state.user_id is None:
-    with st.form("identificacion_usuario"):
-        st.markdown("**¿Cómo te llamas?** (Solo tu nombre o apodo, sin apellidos)")
-        nombre_input = st.text_input("Nombre o apodo:", placeholder="Ej: Carlos, Dra. López, Estudiante5...")
-        submitted = st.form_submit_button("Entrar a PaperMinds")
-        
-        if submitted and nombre_input.strip():
-            user_id = generar_user_id(nombre_input)
-            interacciones_previas = contar_interacciones_previas(user_id)
-            
-            st.session_state.user_id = user_id
-            st.session_state.nombre_usuario = nombre_input.strip()
-            st.session_state.es_usuario_recurrente = interacciones_previas > 0
-            st.session_state.interacciones_previas = interacciones_previas
-            
-            # Cargar historial previo desde Firebase
-            if interacciones_previas > 0:
-                historial_firebase = cargar_historial_usuario(user_id)
-                st.session_state.mensajes_chat = historial_firebase
-            
-            st.session_state.historial_cargado = True
-            st.rerun()
+
+    st.markdown("### Accede a tu cuenta")
+    tab_login, tab_registro = st.tabs(["🔑 Iniciar sesión", "✏️ Crear cuenta"])
+
+    # --- TAB: INICIAR SESIÓN ---
+    with tab_login:
+        with st.form("form_login"):
+            st.markdown("Ingresa el nombre y contraseña que registraste anteriormente.")
+            nombre_login = st.text_input("Nombre o apodo", placeholder="Ej: Carlos")
+            pass_login   = st.text_input("Contraseña", type="password")
+            btn_login    = st.form_submit_button("Entrar")
+
+        if btn_login:
+            if not nombre_login.strip() or not pass_login:
+                st.error("Completa ambos campos.")
+            else:
+                cuenta = buscar_cuenta(nombre_login)
+                if cuenta is None:
+                    st.error("No existe una cuenta con ese nombre. Usa la pestaña **Crear cuenta**.")
+                elif cuenta["password_hash"] != hashear(pass_login):
+                    st.error("Contraseña incorrecta. Intenta de nuevo.")
+                else:
+                    # Credenciales correctas → cargar sesión
+                    user_id = cuenta["user_id"]
+                    interacciones = contar_interacciones_previas(user_id)
+                    st.session_state.user_id             = user_id
+                    st.session_state.nombre_usuario      = cuenta["nombre_display"]
+                    st.session_state.es_usuario_recurrente = interacciones > 0
+                    st.session_state.interacciones_previas = interacciones
+                    if interacciones > 0:
+                        st.session_state.mensajes_chat = cargar_historial_usuario(user_id)
+                    st.session_state.historial_cargado = True
+                    st.rerun()
+
+    # --- TAB: CREAR CUENTA ---
+    with tab_registro:
+        with st.form("form_registro"):
+            st.markdown("Elige un nombre o apodo y una contraseña. **Guárdalos**, los necesitarás para volver a entrar.")
+            nombre_reg  = st.text_input("Nombre o apodo", placeholder="Ej: Carlos, Dra. López")
+            pass_reg    = st.text_input("Contraseña (mínimo 4 caracteres)", type="password")
+            pass_reg2   = st.text_input("Confirma tu contraseña", type="password")
+            btn_reg     = st.form_submit_button("Crear cuenta")
+
+        if btn_reg:
+            if not nombre_reg.strip() or not pass_reg:
+                st.error("Completa todos los campos.")
+            elif len(pass_reg) < 4:
+                st.error("La contraseña debe tener al menos 4 caracteres.")
+            elif pass_reg != pass_reg2:
+                st.error("Las contraseñas no coinciden.")
+            else:
+                cuenta_existente = buscar_cuenta(nombre_reg)
+                if cuenta_existente is not None:
+                    st.error(f"El nombre **{nombre_reg.strip()}** ya está en uso. Elige otro o inicia sesión.")
+                else:
+                    # Nombre disponible → registrar y entrar
+                    user_id = generar_user_id(nombre_reg, pass_reg)
+                    registrar_cuenta(nombre_reg, pass_reg, user_id)
+                    st.session_state.user_id               = user_id
+                    st.session_state.nombre_usuario        = nombre_reg.strip()
+                    st.session_state.es_usuario_recurrente = False
+                    st.session_state.interacciones_previas = 0
+                    st.session_state.historial_cargado     = True
+                    st.rerun()
+
     st.stop()
 
-# --- APP PRINCIPAL (usuario identificado) ---
+# ==========================================
+# 7. APP PRINCIPAL (usuario autenticado)
+# ==========================================
 
-# Mostrar bienvenida personalizada una sola vez
-if st.session_state.get("mostrar_bienvenida", True):
+# Bienvenida personalizada (una sola vez por sesión)
+if st.session_state.mostrar_bienvenida:
     if st.session_state.es_usuario_recurrente:
         n = st.session_state.get("interacciones_previas", 0)
         st.success(f"👋 Bienvenido de vuelta, **{st.session_state.nombre_usuario}**. Tienes {n} consulta(s) previas. Tu historial ha sido cargado.")
     else:
-        st.success(f"👋 Bienvenido a PaperMinds, **{st.session_state.nombre_usuario}**. ¿En qué puedo ayudarte hoy?")
+        st.success(f"👋 Cuenta creada. Bienvenido a PaperMinds, **{st.session_state.nombre_usuario}**.")
     st.session_state.mostrar_bienvenida = False
 
-# Cargar el PDF en memoria (una sola vez)
+# Cargar el PDF base de conocimiento (una sola vez)
 contexto_clinico = cargar_base_conocimiento()
 
 # Mostrar historial de chat
@@ -246,18 +331,15 @@ with st.expander("📎 Adjuntar documento para revisión (PDF o Word)", expanded
         label_visibility="collapsed",
         key="file_uploader"
     )
-    # Procesar y persistir el documento en sesión al subirse
     if archivo_subido:
-        # Solo re-procesar si es un archivo nuevo (distinto nombre al que ya está en sesión)
         if archivo_subido.name != st.session_state.documento_nombre:
             texto_extraido = extraer_texto_documento(archivo_subido)
             if texto_extraido.startswith("[ERROR"):
                 st.warning(texto_extraido)
             else:
-                st.session_state.documento_texto = texto_extraido
+                st.session_state.documento_texto  = texto_extraido
                 st.session_state.documento_nombre = archivo_subido.name
 
-    # Mostrar estado del documento activo en sesión
     if st.session_state.documento_nombre:
         palabras = len(st.session_state.documento_texto.split())
         col1, col2 = st.columns([4, 1])
@@ -265,7 +347,7 @@ with st.expander("📎 Adjuntar documento para revisión (PDF o Word)", expanded
             st.success(f"✅ Documento activo: **{st.session_state.documento_nombre}** — {palabras} palabras")
         with col2:
             if st.button("🗑️ Quitar", use_container_width=True):
-                st.session_state.documento_texto = ""
+                st.session_state.documento_texto  = ""
                 st.session_state.documento_nombre = ""
                 st.rerun()
 
@@ -273,20 +355,18 @@ with st.expander("📎 Adjuntar documento para revisión (PDF o Word)", expanded
 pregunta_usuario = st.chat_input("Ej: Revisa mi caso clínico / ¿Cumple mi título para AMIC?")
 
 if pregunta_usuario:
-    # 1. Mostrar y guardar pregunta del usuario
-    tiene_doc = bool(st.session_state.documento_texto)
+    tiene_doc    = bool(st.session_state.documento_texto)
     etiqueta_doc = f" [documento adjunto: {st.session_state.documento_nombre}]" if tiene_doc else ""
+
     with st.chat_message("user", avatar="👨‍⚕️"):
         st.markdown(pregunta_usuario + etiqueta_doc)
     st.session_state.mensajes_chat.append({"role": "user", "contenido": pregunta_usuario + etiqueta_doc})
 
-    # 2. Construir historial para el prompt (contexto conversacional)
-    historial_prompt = construir_historial_para_prompt(st.session_state.mensajes_chat[:-1])
-    es_recurrente = st.session_state.es_usuario_recurrente
-    nombre = st.session_state.nombre_usuario
+    historial_prompt       = construir_historial_para_prompt(st.session_state.mensajes_chat[:-1])
+    es_recurrente          = st.session_state.es_usuario_recurrente
+    nombre                 = st.session_state.nombre_usuario
     texto_documento_alumno = st.session_state.documento_texto
 
-    # 3. Construir el Prompt con historial y detección de usuario recurrente
     prompt_final = f"""
 Eres 'PaperMinds', Asistente Especializado en Investigación Odontológica.
 
@@ -310,8 +390,7 @@ SITUACIONES QUE REQUIEREN PREGUNTAR PRIMERO:
 - Menciona "guía" o "formato" sin aclarar cuál → Pregunta por el tipo específico.
 - La pregunta es aplicable a múltiples categorías del documento → Lista las opciones disponibles y pregunta cuál aplica.
 
-REGLA: Si hay ambigüedad, DETENTE. Haz UNA sola pregunta de clarificación, breve y directa. NO asumas, NO respondas con la opción más común o popular. Espera la respuesta del alumno antes de continuar.
-
+REGLA: Si hay ambigüedad, DETENTE. Haz UNA sola pregunta de clarificación, breve y directa. NO asumas. Espera la respuesta del alumno antes de continuar.
 Excepción: Si el alumno ya aclaró el contexto en el historial de conversación, úsalo y no preguntes de nuevo.
 
 --- MODOS DE OPERACIÓN (Elige el adecuado según la entrada) ---
@@ -346,7 +425,7 @@ Excepción: Si el alumno ya aclaró el contexto en el historial de conversación
   1. **Diagnóstico general** (2-3 líneas): qué tan cerca está del formato requerido.
   2. **Observaciones específicas**: lista numerada de correcciones concretas, citando la regla de la guía que se incumple.
   3. **Versión corregida** (solo si el alumno lo pide o si el fragmento es corto): reescribe el texto corregido.
-- Sé quirúrgico: señala línea o sección específica cuando sea posible. No hagas comentarios generales.
+- Sé quirúrgico: señala sección específica cuando sea posible. No hagas comentarios generales.
 
 --- HISTORIAL DE CONVERSACIÓN (contexto de esta sesión) ---
 {historial_prompt}
@@ -361,7 +440,6 @@ Excepción: Si el alumno ya aclaró el contexto en el historial de conversación
 {pregunta_usuario}
 """
 
-    # 4. Generar respuesta de la IA
     with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Consultando la guía dental..."):
             try:
@@ -371,23 +449,21 @@ Excepción: Si el alumno ya aclaró el contexto en el historial de conversación
                     "SEXUAL": "BLOCK_NONE",
                     "DANGEROUS": "BLOCK_NONE"
                 }
-                
-                response = modelo.generate_content(prompt_final, safety_settings=safety_settings)
+
+                response    = modelo.generate_content(prompt_final, safety_settings=safety_settings)
                 respuesta_ia = response.text
-                
+
                 st.markdown(respuesta_ia)
                 st.session_state.mensajes_chat.append({"role": "assistant", "contenido": respuesta_ia})
-                
-                # 5. Guardar log en Firebase con user_id
+
                 guardar_log_interaccion(
                     st.session_state.user_id,
                     st.session_state.nombre_usuario,
                     pregunta_usuario,
                     respuesta_ia
                 )
-                
-                # Marcar como usuario recurrente para la próxima pregunta en esta sesión
+
                 st.session_state.es_usuario_recurrente = True
-                
+
             except Exception as e:
                 st.warning("⏳ Muchos estudiantes están consultando al mismo tiempo. Por favor, espera 20 segundos y vuelve a enviar tu pregunta.")
