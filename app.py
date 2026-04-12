@@ -6,6 +6,8 @@ import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 import hashlib
+from docx import Document as DocxDocument
+import io
 
 st.set_page_config(page_title="PaperMinds IA", page_icon="🦷", layout="centered")
 
@@ -144,6 +146,21 @@ def cargar_base_conocimiento():
         st.error(f"Error al leer el PDF: {e}")
         return ""
 
+def extraer_texto_documento(archivo) -> str:
+    """Extrae texto plano de un PDF o Word subido por el alumno."""
+    nombre = archivo.name.lower()
+    try:
+        if nombre.endswith(".pdf"):
+            lector = PdfReader(archivo)
+            return "\n".join(p.extract_text() or "" for p in lector.pages).strip()
+        elif nombre.endswith(".docx"):
+            doc = DocxDocument(io.BytesIO(archivo.read()))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
+        else:
+            return ""
+    except Exception as e:
+        return f"[ERROR al leer el documento: {e}]"
+
 def construir_historial_para_prompt(mensajes: list) -> str:
     """Convierte el historial de mensajes en texto para incluir en el prompt."""
     if not mensajes:
@@ -171,6 +188,8 @@ if "user_id" not in st.session_state:
     st.session_state.es_usuario_recurrente = False
     st.session_state.mensajes_chat = []
     st.session_state.historial_cargado = False
+    st.session_state.documento_texto = ""       # Texto extraído del documento activo
+    st.session_state.documento_nombre = ""      # Nombre del archivo para referencia en sesión
 
 # Formulario de identificación (solo se muestra si no hay usuario activo)
 if st.session_state.user_id is None:
@@ -218,19 +237,54 @@ for msj in st.session_state.mensajes_chat:
         contenido = msj.get("contenido") or msj.get("content", "")
         st.markdown(contenido)
 
+# --- SUBIDA DE DOCUMENTO DEL ALUMNO ---
+with st.expander("📎 Adjuntar documento para revisión (PDF o Word)", expanded=False):
+    st.caption("Sube tu caso clínico, cartel o resumen. Permanece activo durante toda la sesión.")
+    archivo_subido = st.file_uploader(
+        "Selecciona un archivo",
+        type=["pdf", "docx"],
+        label_visibility="collapsed",
+        key="file_uploader"
+    )
+    # Procesar y persistir el documento en sesión al subirse
+    if archivo_subido:
+        # Solo re-procesar si es un archivo nuevo (distinto nombre al que ya está en sesión)
+        if archivo_subido.name != st.session_state.documento_nombre:
+            texto_extraido = extraer_texto_documento(archivo_subido)
+            if texto_extraido.startswith("[ERROR"):
+                st.warning(texto_extraido)
+            else:
+                st.session_state.documento_texto = texto_extraido
+                st.session_state.documento_nombre = archivo_subido.name
+
+    # Mostrar estado del documento activo en sesión
+    if st.session_state.documento_nombre:
+        palabras = len(st.session_state.documento_texto.split())
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.success(f"✅ Documento activo: **{st.session_state.documento_nombre}** — {palabras} palabras")
+        with col2:
+            if st.button("🗑️ Quitar", use_container_width=True):
+                st.session_state.documento_texto = ""
+                st.session_state.documento_nombre = ""
+                st.rerun()
+
 # Caja de entrada de texto
-pregunta_usuario = st.chat_input("Ej: ¿Cómo estructurar un caso clínico?")
+pregunta_usuario = st.chat_input("Ej: Revisa mi caso clínico / ¿Cumple mi título para AMIC?")
 
 if pregunta_usuario:
     # 1. Mostrar y guardar pregunta del usuario
+    tiene_doc = bool(st.session_state.documento_texto)
+    etiqueta_doc = f" [documento adjunto: {st.session_state.documento_nombre}]" if tiene_doc else ""
     with st.chat_message("user", avatar="👨‍⚕️"):
-        st.markdown(pregunta_usuario)
-    st.session_state.mensajes_chat.append({"role": "user", "contenido": pregunta_usuario})
+        st.markdown(pregunta_usuario + etiqueta_doc)
+    st.session_state.mensajes_chat.append({"role": "user", "contenido": pregunta_usuario + etiqueta_doc})
 
     # 2. Construir historial para el prompt (contexto conversacional)
     historial_prompt = construir_historial_para_prompt(st.session_state.mensajes_chat[:-1])
     es_recurrente = st.session_state.es_usuario_recurrente
     nombre = st.session_state.nombre_usuario
+    texto_documento_alumno = st.session_state.documento_texto
 
     # 3. Construir el Prompt con historial y detección de usuario recurrente
     prompt_final = f"""
@@ -286,8 +340,19 @@ Excepción: Si el alumno ya aclaró el contexto en el historial de conversación
 - Columnas: categoría | opción A | opción B (| opción C si aplica).
 - Una línea de conclusión al final indicando cuándo usar cada uno.
 
+🟣 MODO 6: REVISOR DE DOCUMENTO (Se activa automáticamente cuando hay un documento adjunto)
+- El alumno subió su trabajo. Eres su editor académico.
+- Estructura tu revisión en tres bloques fijos:
+  1. **Diagnóstico general** (2-3 líneas): qué tan cerca está del formato requerido.
+  2. **Observaciones específicas**: lista numerada de correcciones concretas, citando la regla de la guía que se incumple.
+  3. **Versión corregida** (solo si el alumno lo pide o si el fragmento es corto): reescribe el texto corregido.
+- Sé quirúrgico: señala línea o sección específica cuando sea posible. No hagas comentarios generales.
+
 --- HISTORIAL DE CONVERSACIÓN (contexto de esta sesión) ---
 {historial_prompt}
+
+--- DOCUMENTO SUBIDO POR EL ALUMNO ---
+{"El alumno ha adjuntado el siguiente documento para que lo revises:\\n\\n" + texto_documento_alumno[:20000] if texto_documento_alumno else "El alumno no adjuntó ningún documento en esta consulta."}
 
 --- BIBLIOTECA DE CONSULTA ---
 {contexto_clinico[:60000]}
@@ -326,11 +391,3 @@ Excepción: Si el alumno ya aclaró el contexto en el historial de conversación
                 
             except Exception as e:
                 st.warning("⏳ Muchos estudiantes están consultando al mismo tiempo. Por favor, espera 20 segundos y vuelve a enviar tu pregunta.")
-                
-                # 4. Guardar log en Firebase (en segundo plano)
-                guardar_log_interaccion(pregunta_usuario, respuesta_ia)
-                
-            except Exception as e:
-                # Mensaje amable en caso de Error 429 (saturación por minuto)
-                st.warning("⏳ Muchos estudiantes están consultando al mismo tiempo. Por favor, espera 20 segundos y vuelve a enviar tu pregunta.")
-                # st.error(f"Detalle técnico del error: {e}") # Descomentar solo para mantenimiento
