@@ -3,32 +3,25 @@ import google.generativeai as genai
 from PyPDF2 import PdfReader
 import datetime
 import json
-import os
 import firebase_admin
 from firebase_admin import credentials, firestore
+import hashlib
 
-# ==========================================
-# 1. CONFIGURACIÓN DE PÁGINA Y MARCA (CSS)
-# ==========================================
 st.set_page_config(page_title="PaperMinds IA", page_icon="🦷", layout="centered")
 
-# Inyección de CSS para estilizar la app sin romper el modo oscuro/claro
 st.markdown("""
     <style>
-    /* Importar tipografías elegantes */
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&display=swap');
     
-    /* Estilo del Título Principal */
     .main-title {
-        font-family: 'Playfair+Display', serif;
+        font-family: 'Playfair Display', serif;
         font-size: 3.2rem;
-        color: #00D1FF; /* Azul cian brillante */
+        color: #00D1FF;
         text-align: center;
         margin-bottom: 0px;
         padding-top: 0px;
     }
     
-    /* Estilo del Subtítulo */
     .subtitle {
         font-family: 'Inter', sans-serif;
         font-size: 1.1rem;
@@ -37,20 +30,17 @@ st.markdown("""
         margin-bottom: 35px;
     }
 
-    /* Estilo general del chat para redondear bordes */
     .stChatMessage {
         border-radius: 15px;
         margin-bottom: 10px;
     }
     
-    /* Botón de envío personalizado (Azul dental) */
     button[kind="primary"] {
         background-color: #00D1FF !important;
         border: none !important;
         color: white !important;
     }
 
-    /* Ocultar elementos innecesarios de Streamlit para mayor limpieza */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -61,17 +51,13 @@ st.markdown("""
 # 2. SECCIÓN DE SEGURIDAD (CONEXIONES)
 # ==========================================
 
-# Cargar llaves secretas
 try:
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
     FIREBASE_CREDENTIALS = st.secrets["FIREBASE_CREDENTIALS"]
-    # Las claves de acceso piloto y admin ya no se usan en la UI, 
-    # pero las dejamos cargadas por si Firebase las necesita internamente.
 except KeyError:
     st.error("Faltan las claves de API en los 'secrets' de Streamlit.")
     st.stop()
 
-# Inicializar Firebase (Bases de datos)
 if not firebase_admin._apps:
     try:
         cred_dict = json.loads(FIREBASE_CREDENTIALS)
@@ -83,7 +69,6 @@ if not firebase_admin._apps:
     
 db = firestore.client()
 
-
 genai.configure(api_key=GOOGLE_API_KEY)
 modelo = genai.GenerativeModel('gemini-3-flash-preview')
 
@@ -91,25 +76,62 @@ modelo = genai.GenerativeModel('gemini-3-flash-preview')
 # 3. FUNCIONES DE SOPORTE
 # ==========================================
 
-def guardar_log_interaccion(pregunta, respuesta):
+def generar_user_id(nombre_usuario: str) -> str:
+    """Genera un ID único y anónimo basado en el nombre del usuario."""
+    return hashlib.sha256(nombre_usuario.strip().lower().encode()).hexdigest()[:16]
+
+def cargar_historial_usuario(user_id: str) -> list:
+    """Carga el historial de conversaciones previas del usuario desde Firebase."""
+    try:
+        docs = (
+            db.collection("chats_paperminds")
+            .where("user_id", "==", user_id)
+            .order_by("fecha_hora")
+            .limit(20)  # Últimas 20 interacciones para no saturar el contexto
+            .stream()
+        )
+        historial = []
+        for doc in docs:
+            data = doc.to_dict()
+            historial.append({"role": "user",      "contenido": data.get("input_usuario", "")})
+            historial.append({"role": "assistant", "contenido": data.get("output_ia", "")})
+        return historial
+    except Exception as e:
+        print(f"Error al cargar historial de Firebase: {e}")
+        return []
+
+def guardar_log_interaccion(user_id: str, nombre_usuario: str, pregunta: str, respuesta: str):
     """Guarda el historial de chat directamente en Google Firebase Cloud."""
     log = {
         "fecha_hora": datetime.datetime.now().isoformat(),
+        "user_id": user_id,
+        "nombre_usuario": nombre_usuario,
         "input_usuario": pregunta,
         "output_ia": respuesta,
         "proyecto": "PaperMinds PILOTO"
     }
-
-    try: 
+    try:
         db.collection("chats_paperminds").add(log)
     except Exception as e:
         print(f"Error al guardar log en Firebase: {e}")
+
+def contar_interacciones_previas(user_id: str) -> int:
+    """Cuenta cuántas veces el usuario ha interactuado previamente."""
+    try:
+        docs = (
+            db.collection("chats_paperminds")
+            .where("user_id", "==", user_id)
+            .stream()
+        )
+        return sum(1 for _ in docs)
+    except Exception:
+        return 0
 
 @st.cache_data
 def cargar_base_conocimiento():
     """Carga y extrae texto del PDF adjunto."""
     texto = ""
-    nombre_pdf = "Guia_dental.pdf" 
+    nombre_pdf = "Guia_dental.pdf"
     try:
         lector = PdfReader(nombre_pdf)
         for pagina in lector.pages:
@@ -122,75 +144,162 @@ def cargar_base_conocimiento():
         st.error(f"Error al leer el PDF: {e}")
         return ""
 
-# Encabezado estético con HTML/CSS
+def construir_historial_para_prompt(mensajes: list) -> str:
+    """Convierte el historial de mensajes en texto para incluir en el prompt."""
+    if not mensajes:
+        return "Sin conversaciones previas en esta sesión."
+    lineas = []
+    for msj in mensajes[-10:]:  # Solo últimos 10 mensajes para no saturar
+        rol = "Alumno" if msj["role"] == "user" else "PaperMinds"
+        contenido = msj.get("contenido") or msj.get("content", "")
+        lineas.append(f"{rol}: {contenido}")
+    return "\n".join(lineas)
+
+# ==========================================
+# 4. INTERFAZ PRINCIPAL
+# ==========================================
+
 st.markdown('<h1 class="main-title">🦷 PaperMinds</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Asistente experto en metodología e investigación odontológica</p>', unsafe_allow_html=True)
 
-# Recordatorio de privacidad
 st.info("⚠️ Por protocolo de privacidad, no ingrese datos reales ni nombres de pacientes.")
+
+# --- IDENTIFICACIÓN DEL USUARIO ---
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+    st.session_state.nombre_usuario = None
+    st.session_state.es_usuario_recurrente = False
+    st.session_state.mensajes_chat = []
+    st.session_state.historial_cargado = False
+
+# Formulario de identificación (solo se muestra si no hay usuario activo)
+if st.session_state.user_id is None:
+    with st.form("identificacion_usuario"):
+        st.markdown("**¿Cómo te llamas?** (Solo tu nombre o apodo, sin apellidos)")
+        nombre_input = st.text_input("Nombre o apodo:", placeholder="Ej: Carlos, Dra. López, Estudiante5...")
+        submitted = st.form_submit_button("Entrar a PaperMinds")
+        
+        if submitted and nombre_input.strip():
+            user_id = generar_user_id(nombre_input)
+            interacciones_previas = contar_interacciones_previas(user_id)
+            
+            st.session_state.user_id = user_id
+            st.session_state.nombre_usuario = nombre_input.strip()
+            st.session_state.es_usuario_recurrente = interacciones_previas > 0
+            st.session_state.interacciones_previas = interacciones_previas
+            
+            # Cargar historial previo desde Firebase
+            if interacciones_previas > 0:
+                historial_firebase = cargar_historial_usuario(user_id)
+                st.session_state.mensajes_chat = historial_firebase
+            
+            st.session_state.historial_cargado = True
+            st.rerun()
+    st.stop()
+
+# --- APP PRINCIPAL (usuario identificado) ---
+
+# Mostrar bienvenida personalizada una sola vez
+if st.session_state.get("mostrar_bienvenida", True):
+    if st.session_state.es_usuario_recurrente:
+        n = st.session_state.get("interacciones_previas", 0)
+        st.success(f"👋 Bienvenido de vuelta, **{st.session_state.nombre_usuario}**. Tienes {n} consulta(s) previas. Tu historial ha sido cargado.")
+    else:
+        st.success(f"👋 Bienvenido a PaperMinds, **{st.session_state.nombre_usuario}**. ¿En qué puedo ayudarte hoy?")
+    st.session_state.mostrar_bienvenida = False
 
 # Cargar el PDF en memoria (una sola vez)
 contexto_clinico = cargar_base_conocimiento()
 
-# Inicializar historial de chat en la sesión
-if "mensajes_chat" not in st.session_state:
-    st.session_state.mensajes_chat = []
-
-# Mostrar el historial de chat con los NUEVOS ICONOS
+# Mostrar historial de chat
 for msj in st.session_state.mensajes_chat:
     avatar = "👨‍⚕️" if msj["role"] == "user" else "🤖"
     with st.chat_message(msj["role"], avatar=avatar):
-        st.markdown(msj["role"] == "user" and msj.get("content") or msj.get("contenido") or msj.get("content", ""))
+        contenido = msj.get("contenido") or msj.get("content", "")
+        st.markdown(contenido)
 
-# Caja de entrada de texto (Input)
+# Caja de entrada de texto
 pregunta_usuario = st.chat_input("Ej: ¿Cómo estructurar un caso clínico?")
 
-# Proceso de respuesta
 if pregunta_usuario:
     # 1. Mostrar y guardar pregunta del usuario
     with st.chat_message("user", avatar="👨‍⚕️"):
         st.markdown(pregunta_usuario)
     st.session_state.mensajes_chat.append({"role": "user", "contenido": pregunta_usuario})
 
-    # 2. Construir el Prompt (Instrucciones para la IA)
-    # Limitamos el contexto del PDF para evitar saturar la memoria (primeros 60,000 caracteres)
+    # 2. Construir historial para el prompt (contexto conversacional)
+    historial_prompt = construir_historial_para_prompt(st.session_state.mensajes_chat[:-1])
+    es_recurrente = st.session_state.es_usuario_recurrente
+    nombre = st.session_state.nombre_usuario
+
+    # 3. Construir el Prompt con historial y detección de usuario recurrente
     prompt_final = f"""
-Eres 'PaperMinds', el Asistente Élite en Investigación Odontológica.
-Tu comportamiento debe adaptarse al TIPO de petición que te haga el alumno. Siempre conservando la amabilidad y educación
+Eres 'PaperMinds', Asistente Especializado en Investigación Odontológica.
+
+--- IDENTIDAD DEL USUARIO ---
+Nombre: {nombre}
+¿Usuario recurrente (ya ha usado PaperMinds antes)?: {"SÍ — NO lo saludes de nuevo, no uses frases de bienvenida" if es_recurrente else "NO — Es su primera sesión, pero sé breve"}
+
+--- TONO Y ESTILO DE RESPUESTA (OBLIGATORIO) ---
+- Sé DIRECTO y CONCISO. Elimina cualquier relleno o verborrea.
+- Usa lenguaje profesional, clínico y preciso.
+- NUNCA repitas lo que el alumno ya dijo antes de responder.
+- NUNCA uses frases genéricas como "¡Claro!", "¡Por supuesto!", "¡Excelente pregunta!".
+- Si el usuario es recurrente, omite cualquier saludo o introducción. Ve directo al punto.
+- Cierra con UNA pregunta de seguimiento breve solo si aporta valor real.
+
+--- REGLA CRÍTICA: MANEJO DE AMBIGÜEDAD (PRIORIDAD MÁXIMA) ---
+ANTES de responder cualquier pregunta, analiza si el alumno especificó claramente el contexto.
+
+SITUACIONES QUE REQUIEREN PREGUNTAR PRIMERO:
+- Menciona "cartel" sin especificar el tipo → Pregunta: "¿Te refieres al cartel AMIC, Cancún o el cartel general?"
+- Menciona "guía" o "formato" sin aclarar cuál → Pregunta por el tipo específico.
+- La pregunta es aplicable a múltiples categorías del documento → Lista las opciones disponibles y pregunta cuál aplica.
+
+REGLA: Si hay ambigüedad, DETENTE. Haz UNA sola pregunta de clarificación, breve y directa. NO asumas, NO respondas con la opción más común o popular. Espera la respuesta del alumno antes de continuar.
+
+Excepción: Si el alumno ya aclaró el contexto en el historial de conversación, úsalo y no preguntes de nuevo.
 
 --- MODOS DE OPERACIÓN (Elige el adecuado según la entrada) ---
 
-🔴 MODO 1: PREGUNTA RÁPIDA (Ej: ¿Qué es CARE?, ¿Qué ISO uso?)
-- Formato: 🔑 Palabras clave.
-- Regla: Máximo 4 viñetas directas + 1 oración de 'por qué' + 1 pregunta de seguimiento.
+🔴 MODO 1: CONSULTA PUNTUAL (Ej: ¿Qué es CARE?, ¿Qué ISO uso?, ¿Cuántas palabras permite X?)
+- Aplica SOLO cuando el contexto es específico y claro.
+- Formato: respuesta directa en máximo 4 viñetas + 1 oración de cierre explicando el 'por qué'.
+- Sin introducciones, sin repetir la pregunta.
 
 🔵 MODO 2: ORDENADOR DE CASOS (Ej: "Estructura estas notas", "Ordena este caso")
-- Ignora la regla de brevedad. Actúa como Editor Médico.
-- Toma las notas desordenadas y redacta el texto completo usando los 13 ítems de la Guía CARE o SCARE.
-- Usa lenguaje clínico profesional, títulos claros y marca con [FALTA INFORMACIÓN] si el alumno omitió algo vital (ej. anamnesis).
+- Actúa como Editor Médico. Ignora la regla de brevedad.
+- Redacta el texto completo usando los 13 ítems de la Guía CARE o SCARE según corresponda.
+- Lenguaje clínico profesional, títulos claros.
+- Marca con [FALTA INFORMACIÓN] cualquier dato vital omitido (anamnesis, evolución, etc.).
 
-🟢 MODO 3: AUDITOR DE CARTELES Y TÍTULOS (Ej: "Revisa este título para AMIC")
-- Cuenta las palabras estrictamente.
-- Compara con la regla (Ej: AMIC es máximo 12 palabras).
-- Da un veredicto claro al inicio: ✅ CUMPLE o ❌ NO CUMPLE.
-- Si no cumple, propón 2 opciones de títulos corregidos.
+🟢 MODO 3: AUDITOR (Ej: "Revisa este título", "¿Cumple este resumen los requisitos?")
+- Veredicto al inicio: ✅ CUMPLE o ❌ NO CUMPLE — sin excepción.
+- Señala exactamente qué incumple y por qué, citando la regla correspondiente.
+- Si no cumple: ofrece 2 versiones corregidas numeradas.
 
-🟡 MODO 4: CITACIÓN (Ej: "Pasa esto a Vancouver")
-- Devuelve ÚNICAMENTE la referencia formateada perfectamente en Vancouver. Sin explicaciones.
+🟡 MODO 4: CITACIÓN (Ej: "Pasa esto a Vancouver", "Formatea esta referencia")
+- Devuelve ÚNICAMENTE la referencia formateada. Cero explicaciones, cero comentarios.
+
+🟠 MODO 5: COMPARADOR (Ej: "¿En qué se diferencia AMIC de Cancún?", "Compara los formatos")
+- Usa una tabla comparativa cuando haya 2 o más elementos con atributos comparables.
+- Columnas: categoría | opción A | opción B (| opción C si aplica).
+- Una línea de conclusión al final indicando cuándo usar cada uno.
+
+--- HISTORIAL DE CONVERSACIÓN (contexto de esta sesión) ---
+{historial_prompt}
 
 --- BIBLIOTECA DE CONSULTA ---
-{contexto_clinico[:60000]} 
+{contexto_clinico[:60000]}
 
---- DUDA DEL ALUMNO ---
+--- NUEVA PREGUNTA DEL ALUMNO ---
 {pregunta_usuario}
 """
 
-    # 3. Generar respuesta de la IA
+    # 4. Generar respuesta de la IA
     with st.chat_message("assistant", avatar="🤖"):
-        # Indicador de carga (Spinner)
         with st.spinner("Consultando la guía dental..."):
             try:
-                # Configuración de seguridad para evitar bloqueos innecesarios en temas médicos
                 safety_settings = {
                     "HATE": "BLOCK_NONE",
                     "HARASSMENT": "BLOCK_NONE",
@@ -198,13 +307,25 @@ Tu comportamiento debe adaptarse al TIPO de petición que te haga el alumno. Sie
                     "DANGEROUS": "BLOCK_NONE"
                 }
                 
-                # Llamada a la API de Google
                 response = modelo.generate_content(prompt_final, safety_settings=safety_settings)
                 respuesta_ia = response.text
                 
-                # Mostrar respuesta y guardar en historial
                 st.markdown(respuesta_ia)
                 st.session_state.mensajes_chat.append({"role": "assistant", "contenido": respuesta_ia})
+                
+                # 5. Guardar log en Firebase con user_id
+                guardar_log_interaccion(
+                    st.session_state.user_id,
+                    st.session_state.nombre_usuario,
+                    pregunta_usuario,
+                    respuesta_ia
+                )
+                
+                # Marcar como usuario recurrente para la próxima pregunta en esta sesión
+                st.session_state.es_usuario_recurrente = True
+                
+            except Exception as e:
+                st.warning("⏳ Muchos estudiantes están consultando al mismo tiempo. Por favor, espera 20 segundos y vuelve a enviar tu pregunta.")
                 
                 # 4. Guardar log en Firebase (en segundo plano)
                 guardar_log_interaccion(pregunta_usuario, respuesta_ia)
