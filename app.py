@@ -434,10 +434,10 @@ Si el alumno no especifica el contexto (ej. "revisa mi cartel" sin decir si es A
 {pregunta_usuario}
 """
 
-    with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner("Consultando la guía dental..."):
-            try:
-                safety_settings = {
+with st.chat_message("assistant", avatar="🤖"):
+    with st.spinner("Consultando la guía dental..."):
+        try:
+            safety_settings = {
                     "HATE": "BLOCK_NONE",
                     "HARASSMENT": "BLOCK_NONE",
                     "SEXUAL": "BLOCK_NONE",
