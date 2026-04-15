@@ -311,29 +311,6 @@ if st.session_state.user_id is None:
 # 7. APP PRINCIPAL (usuario autenticado)
 # ==========================================
 
-with st.sidebar:
-    st.markdown(f"### 👨‍⚕️ Perfil: {st.session_state.nombre_usuario}")
-    st.caption("Conectado a la bóveda segura de PaperMinds")
-    st.divider()
-    
-    st.markdown("### 🗂️ Mi Archivo de Consultas")
-    st.caption("Revisa todo lo que has trabajado con la IA.")
-    
-    # Expander para ver el historial completo sin saturar la pantalla
-    with st.expander("👀 Ver mi historial completo", expanded=False):
-        if not st.session_state.mensajes_chat:
-            st.info("Aún no tienes consultas registradas en la nube.")
-        else:
-            # Recorremos la memoria y la mostramos completa
-            for msj in st.session_state.mensajes_chat:
-                if msj["role"] == "user":
-                    st.markdown(f"🗣️ **Tú:** _{msj.get('contenido', '')}_")
-                else:
-                    # AQUÍ ESTÁ EL CAMBIO: Quitamos el [:150] que recortaba el texto
-                    st.markdown(f"🤖 **PaperMinds:** {msj.get('contenido', '')}")
-                    st.divider()
-
-
 # Bienvenida personalizada (una sola vez por sesión)
 if st.session_state.mostrar_bienvenida:
     if st.session_state.es_usuario_recurrente:
