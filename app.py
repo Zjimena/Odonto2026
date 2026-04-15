@@ -120,91 +120,35 @@ def registrar_cuenta(nombre: str, password: str, user_id: str):
 # ==========================================
 
 def cargar_historial_usuario(user_id: str) -> list:
-    """Carga el historial de conversaciones previas del usuario desde Firebase."""
+    """Carga el historial de Firebase y lo ordena en Python para evitar errores de Índice."""
     try:
+        # 1. Traemos los mensajes SIN el order_by para que Firebase no bloquee la petición
         docs = (
             db.collection("chats_paperminds")
             .where("user_id", "==", user_id)
-            .order_by("fecha_hora")
-            .limit(20)
             .stream()
         )
-        historial = []
+        
+        # 2. Guardamos todo en una lista temporal
+        documentos_temporales = []
         for doc in docs:
-            data = doc.to_dict()
-            historial.append({"role": "user",      "contenido": data.get("input_usuario", "")})
+            documentos_temporales.append(doc.to_dict())
+            
+        # 3. Ordenamos cronológicamente usando Python
+        documentos_ordenados = sorted(documentos_temporales, key=lambda x: x.get("fecha_hora", ""))
+        
+        # 4. Construimos el historial para Streamlit (Limitamos a los últimos 100 mensajes)
+        historial = []
+        for data in documentos_ordenados[-100:]:
+            historial.append({"role": "user", "contenido": data.get("input_usuario", "")})
             historial.append({"role": "assistant", "contenido": data.get("output_ia", "")})
+            
         return historial
     except Exception as e:
-        print(f"Error al cargar historial de Firebase: {e}")
+        # Ahora sí veremos el error si algo más falla
+        st.error(f"Error al cargar historial de Firebase: {e}")
         return []
-
-def guardar_log_interaccion(user_id: str, nombre_usuario: str, pregunta: str, respuesta: str):
-    """Guarda el historial de chat directamente en Google Firebase Cloud."""
-    log = {
-        "fecha_hora": datetime.datetime.now().isoformat(),
-        "user_id": user_id,
-        "nombre_usuario": nombre_usuario,
-        "input_usuario": pregunta,
-        "output_ia": respuesta,
-        "proyecto": "PaperMinds PILOTO"
-    }
-    try:
-        db.collection("chats_paperminds").add(log)
-    except Exception as e:
-        print(f"Error al guardar log en Firebase: {e}")
-
-def contar_interacciones_previas(user_id: str) -> int:
-    """Cuenta cuántas veces el usuario ha interactuado previamente."""
-    try:
-        docs = (
-            db.collection("chats_paperminds")
-            .where("user_id", "==", user_id)
-            .stream()
-        )
-        return sum(1 for _ in docs)
-    except Exception:
-        return 0
-
-@st.cache_data
-def cargar_base_conocimiento():
-    """Carga y extrae texto del PDF adjunto."""
-    nombre_pdf = "Guia_dental.pdf"
-    try:
-        lector = PdfReader(nombre_pdf)
-        return "\n".join(p.extract_text() or "" for p in lector.pages)
-    except FileNotFoundError:
-        st.error(f"No se encontró el archivo {nombre_pdf}. La IA no tendrá contexto.")
-        return "ADVERTENCIA: No se encontró el archivo Guia_dental.pdf."
-    except Exception as e:
-        st.error(f"Error al leer el PDF: {e}")
-        return ""
-
-def extraer_texto_documento(archivo) -> str:
-    """Extrae texto plano de un PDF o Word subido por el alumno."""
-    nombre = archivo.name.lower()
-    try:
-        if nombre.endswith(".pdf"):
-            lector = PdfReader(archivo)
-            return "\n".join(p.extract_text() or "" for p in lector.pages).strip()
-        elif nombre.endswith(".docx"):
-            doc = DocxDocument(io.BytesIO(archivo.read()))
-            return "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
-        return ""
-    except Exception as e:
-        return f"[ERROR al leer el documento: {e}]"
-
-def construir_historial_para_prompt(mensajes: list) -> str:
-    """Convierte el historial de mensajes en texto para incluir en el prompt."""
-    if not mensajes:
-        return "Sin conversaciones previas en esta sesión."
-    lineas = []
-    for msj in mensajes[-10:]:
-        rol = "Alumno" if msj["role"] == "user" else "PaperMinds"
-        contenido = msj.get("contenido") or msj.get("content", "")
-        lineas.append(f"{rol}: {contenido}")
-    return "\n".join(lineas)
-
+        
 # ==========================================
 # 5. INTERFAZ PRINCIPAL
 # ==========================================
@@ -315,25 +259,16 @@ with st.sidebar:
         if not st.session_state.mensajes_chat:
             st.info("Aún no tienes consultas registradas en la nube.")
         else:
-            # Recorremos la memoria y la mostramos en formato texto resumido
+            # Recorremos la memoria y la mostramos completa
             for msj in st.session_state.mensajes_chat:
                 if msj["role"] == "user":
                     st.markdown(f"🗣️ **Tú:** _{msj.get('contenido', '')}_")
                 else:
-                    # Acortamos un poco la respuesta de la IA en la vista previa para no saturar
-                    respuesta_corta = msj.get('contenido', '')[:150] + "..."
-                    st.markdown(f"🤖 **PaperMinds:** {respuesta_corta}")
+                    # AQUÍ ESTÁ EL CAMBIO: Quitamos el [:150] que recortaba el texto
+                    st.markdown(f"🤖 **PaperMinds:** {msj.get('contenido', '')}")
                     st.divider()
-    
-    st.divider()
-    st.markdown("### 🔄 Control de Sesión")
-    # El botón que comentamos antes: Limpia la pantalla para un paciente nuevo
-    if st.button("Empezar un Nuevo Caso", use_container_width=True, type="primary"):
-        st.session_state.mensajes_chat = []
-        st.session_state.documento_texto = ""
-        st.session_state.documento_nombre = ""
-        st.rerun()
-        
+
+
 # Bienvenida personalizada (una sola vez por sesión)
 if st.session_state.mostrar_bienvenida:
     if st.session_state.es_usuario_recurrente:
