@@ -145,9 +145,74 @@ def cargar_historial_usuario(user_id: str) -> list:
             
         return historial
     except Exception as e:
-        # Ahora sí veremos el error si algo más falla
         st.error(f"Error al cargar historial de Firebase: {e}")
         return []
+
+def guardar_log_interaccion(user_id: str, nombre_usuario: str, pregunta: str, respuesta: str):
+    """Guarda el historial de chat directamente en Google Firebase Cloud."""
+    log = {
+        "fecha_hora": datetime.datetime.now().isoformat(),
+        "user_id": user_id,
+        "nombre_usuario": nombre_usuario,
+        "input_usuario": pregunta,
+        "output_ia": respuesta,
+        "proyecto": "PaperMinds PILOTO"
+    }
+    try:
+        db.collection("chats_paperminds").add(log)
+    except Exception as e:
+        print(f"Error al guardar log en Firebase: {e}")
+
+def contar_interacciones_previas(user_id: str) -> int:
+    """Cuenta cuántas veces el usuario ha interactuado previamente."""
+    try:
+        docs = (
+            db.collection("chats_paperminds")
+            .where("user_id", "==", user_id)
+            .stream()
+        )
+        return sum(1 for _ in docs)
+    except Exception:
+        return 0
+
+@st.cache_data
+def cargar_base_conocimiento():
+    """Carga y extrae texto del PDF adjunto."""
+    nombre_pdf = "Guia_dental.pdf"
+    try:
+        lector = PdfReader(nombre_pdf)
+        return "\n".join(p.extract_text() or "" for p in lector.pages)
+    except FileNotFoundError:
+        st.error(f"No se encontró el archivo {nombre_pdf}. La IA no tendrá contexto.")
+        return "ADVERTENCIA: No se encontró el archivo Guia_dental.pdf."
+    except Exception as e:
+        st.error(f"Error al leer el PDF: {e}")
+        return ""
+
+def extraer_texto_documento(archivo) -> str:
+    """Extrae texto plano de un PDF o Word subido por el alumno."""
+    nombre = archivo.name.lower()
+    try:
+        if nombre.endswith(".pdf"):
+            lector = PdfReader(archivo)
+            return "\n".join(p.extract_text() or "" for p in lector.pages).strip()
+        elif nombre.endswith(".docx"):
+            doc = DocxDocument(io.BytesIO(archivo.read()))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
+        return ""
+    except Exception as e:
+        return f"[ERROR al leer el documento: {e}]"
+
+def construir_historial_para_prompt(mensajes: list) -> str:
+    """Convierte el historial de mensajes en texto para incluir en el prompt."""
+    if not mensajes:
+        return "Sin conversaciones previas en esta sesión."
+    lineas = []
+    for msj in mensajes:
+        rol = "Alumno" if msj["role"] == "user" else "PaperMinds"
+        contenido = msj.get("contenido") or msj.get("content", "")
+        lineas.append(f"{rol}: {contenido}")
+    return "\n".join(lineas)
         
 # ==========================================
 # 5. INTERFAZ PRINCIPAL
