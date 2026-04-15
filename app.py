@@ -435,16 +435,16 @@ Si el alumno no especifica el contexto (ej. "revisa mi cartel" sin decir si es A
 """
 
 with st.chat_message("assistant", avatar="🤖"):
-    with st.spinner("Consultando la guía dental..."):
-        try:
-            safety_settings = {
+        with st.spinner("Consultando la guía dental..."):
+            try:
+                safety_settings = {
                     "HATE": "BLOCK_NONE",
                     "HARASSMENT": "BLOCK_NONE",
                     "SEXUAL": "BLOCK_NONE",
                     "DANGEROUS": "BLOCK_NONE"
                 }
 
-                response    = modelo.generate_content(prompt_final, safety_settings=safety_settings)
+                response = modelo.generate_content(prompt_final, safety_settings=safety_settings)
                 respuesta_ia = response.text
 
                 st.markdown(respuesta_ia)
@@ -460,4 +460,4 @@ with st.chat_message("assistant", avatar="🤖"):
                 st.session_state.es_usuario_recurrente = True
 
             except Exception as e:
-                st.warning("⏳ Muchos estudiantes están consultando al mismo tiempo. Por favor, espera 20 segundos y vuelve a enviar tu pregunta.")
+                st.warning("⏳ Muchos estudiantes están consultando al mismo tiempo. Por favor, espera 20 segundos y vuelve a intentar.")
