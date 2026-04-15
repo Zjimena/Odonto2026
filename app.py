@@ -213,6 +213,40 @@ def construir_historial_para_prompt(mensajes: list) -> str:
 st.markdown('<h1 class="main-title">🦷 PaperMinds</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Asistente experto en metodología e investigación odontológica</p>', unsafe_allow_html=True)
 
+# ==========================================
+# BARRA LATERAL (MENÚ DEL ALUMNO Y HISTORIAL)
+# ==========================================
+with st.sidebar:
+    st.markdown(f"### 👨‍⚕️ Perfil: {st.session_state.nombre_usuario}")
+    st.caption("Conectado a la bóveda segura de PaperMinds")
+    st.divider()
+    
+    st.markdown("### 🗂️ Mi Archivo de Consultas")
+    st.caption("Revisa todo lo que has trabajado con la IA.")
+    
+    # Expander para ver el historial completo sin saturar la pantalla
+    with st.expander("👀 Ver mi historial completo", expanded=False):
+        if not st.session_state.mensajes_chat:
+            st.info("Aún no tienes consultas registradas en la nube.")
+        else:
+            # Recorremos la memoria y la mostramos en formato texto resumido
+            for msj in st.session_state.mensajes_chat:
+                if msj["role"] == "user":
+                    st.markdown(f"🗣️ **Tú:** _{msj.get('contenido', '')}_")
+                else:
+                    # Acortamos un poco la respuesta de la IA en la vista previa para no saturar
+                    respuesta_corta = msj.get('contenido', '')[:150] + "..."
+                    st.markdown(f"🤖 **PaperMinds:** {respuesta_corta}")
+                    st.divider()
+    
+    st.divider()
+    st.markdown("### 🔄 Control de Sesión")
+    # El botón que comentamos antes: Limpia la pantalla para un paciente nuevo
+    if st.button("Empezar un Nuevo Caso", use_container_width=True, type="primary"):
+        st.session_state.mensajes_chat = []
+        st.session_state.documento_texto = ""
+        st.session_state.documento_nombre = ""
+        st.rerun()
 st.info("⚠️ Por protocolo de privacidad, no ingrese datos reales ni nombres de pacientes.")
 
 # --- INICIALIZAR SESSION STATE ---
