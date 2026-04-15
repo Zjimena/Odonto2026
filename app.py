@@ -362,10 +362,11 @@ if pregunta_usuario:
         st.markdown(pregunta_usuario + etiqueta_doc)
     st.session_state.mensajes_chat.append({"role": "user", "contenido": pregunta_usuario + etiqueta_doc})
 
-    historial_prompt       = construir_historial_para_prompt(st.session_state.mensajes_chat[:-1])
-    es_recurrente          = st.session_state.es_usuario_recurrente
     nombre                 = st.session_state.nombre_usuario
+    es_recurrente          = st.session_state.es_usuario_recurrente
+    historial_prompt       = construir_historial_para_prompt(st.session_state.mensajes_chat[:-1])
     texto_documento_alumno = st.session_state.documento_texto
+    
 
 prompt_final = f"""
 Eres 'PaperMinds', Asistente Especializado en Investigación Odontológica.
