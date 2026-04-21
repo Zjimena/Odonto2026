@@ -9,7 +9,7 @@ import hashlib
 from docx import Document as DocxDocument
 import io
 
-st.set_page_config(page_title="PaperMinds IA", page_icon="🦷", layout="centered")
+st.set_page_config(page_title="Piloto IA", page_icon="🦷", layout="centered")
 
 st.markdown("""
     <style>
